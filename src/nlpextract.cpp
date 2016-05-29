@@ -39,11 +39,71 @@ inline bool file_exists(const std::string& name) {
   return (stat(name.c_str(), &buffer) == 0);
 }
 
-void unpack_image(const std::string& filename) {
-  std::fstream fs(filename.c_str(),
-                  std::fstream::in | std::fstream::out | std::ios_base::binary);
+/**
+ * Simple function to read a string from some istream
+ *
+ * @param istream the istream to read from
+ * @param length the length of the string
+ *
+ * @return the extracted string
+ */
+inline std::string read_string(std::istream& istream, int length) {
+  char buffer[length];
 
+  // original program used C# "read" which is
+  // read(byte[], num bytes, num chars) thus, I'm using "get" instead of the C++
+  // "read", which only handles bytes, not characters
+  // here
+  istream.get(buffer, 4);
+
+  return std::string(buffer);
+}
+
+int extract_package(std::fstream& file, std::string output_folder) {
+  uint base_offset = static_cast<uint>(file.tellg());
+
+  std::string pack_signature = read_string(file, 4);
+  if (pack_signature != "PACK") {  // verify that we're extracting a package
+    return -1;
+  }
+}
+
+void unpack_image(const std::string& filename) {
+  std::fstream file(filename.c_str(), std::fstream::in | std::fstream::out |
+                                          std::fstream::binary);
   int index = 0;
+
+  // Save the length of the file
+  file.seekg(0, file.end);
+  int length = file.tellg();
+  file.seekg(0, file.beg);
+
+  while (file.tellg() <= length) {
+    std::cout << set_color(Color::YELLOW) << "[Package " << index
+              << " at offset 0x" << std::hex << file.tellg() << std::dec << "]"
+              << set_color() << std::endl;
+
+    // TODO: Figure out how to do filepath/directory manipulation here.
+    // Maybe use apathy library? Would require submoduling project into /include
+    // folder.
+
+    // I feel weird about doing side-effecting computations. Might alter
+    // extract_package to be something that returns a true value, not just a
+    // number. We could accumulate packages and then dump them all at once.
+    if (extract_package(file, "") > 0) {
+      index++;
+    } else {
+      // Delete the package_folder directory
+    }
+
+    if ((file.tellg() & BlockAlignMask) != 0) {
+      long position = (file.tellg() & ~BlockAlignMask) + BlockAlign;
+      if (position >= length) break;
+      file.seekg(position, file.beg);
+    }
+
+    std::cout << std::endl;
+  }
 }
 
 int main(int argc, char** argv) {
