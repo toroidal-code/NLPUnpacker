@@ -1,8 +1,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <sstream>
+#include <vector>
 
 // From
 // http://stackoverflow.com/questions/9943187/colour-output-of-program-run-under-bash
@@ -54,10 +56,31 @@ inline std::string read_string(std::istream& istream, int length) {
   // read(byte[], num bytes, num chars) thus, I'm using "get" instead of the C++
   // "read", which only handles bytes, not characters
   // here
-  istream.get(buffer, 4);
+  istream.read(buffer, 4);
 
   return std::string(buffer);
 }
+
+inline std::string read_null_terminated_string(std::istream& istream,
+                                               uint32_t offset) {
+  istream.seekg(offset, istream.beg);
+  std::vector<char> buffer;
+
+  for (;;) {
+    char character;
+    istream.read(&character, 1);  // read a single byte
+    if (character == '\0') break;
+    buffer.push_back(character);
+  }
+
+  return std::string(buffer.begin(), buffer.end());
+}
+
+inline uint32_t read_uint32(std::istream& istream) {
+  uint32_t value;
+  istream.read(reinterpret_cast<char*>(&value), sizeof value);
+  return value;
+};
 
 int extract_package(std::fstream& file, std::string output_folder) {
   uint base_offset = static_cast<uint>(file.tellg());
@@ -65,6 +88,52 @@ int extract_package(std::fstream& file, std::string output_folder) {
   std::string pack_signature = read_string(file, 4);
   if (pack_signature != "PACK") {  // verify that we're extracting a package
     return -1;
+  }
+
+  // TODO: turn this into a packed struct that we read all at once. Seriously.
+  uint32_t file_count = read_uint32(file) >> 16;
+  uint32_t string_pointer_offset = read_uint32(file) + base_offset;
+  uint32_t string_table_offset = read_uint32(file) + base_offset;
+  uint32_t data_offset = read_uint32(file) + base_offset;
+  uint32_t decompressed_section_length = read_uint32(file);
+  uint32_t compressed_section_length = read_uint32(file);
+  uint32_t padding = read_uint32(file);
+
+  for (int idx = 0; idx < file_count; idx++) {
+    // 32 was originally 0x20
+    file.seekg(base_offset + 32 + (idx * 32), file.beg);
+
+    // TODO: Same for this
+    std::string file_signature = read_string(file, 4);
+    uint32_t unknown_0 = read_uint32(file);
+    uint32_t decompressed_length = read_uint32(file);
+    uint32_t decompressed_offset = read_uint32(file) + base_offset;
+    uint32_t unknown_1 = read_uint32(file);
+    uint32_t flags = read_uint32(file);
+    uint32_t compressed_length = read_uint32(file);
+    uint32_t compressed_offset = read_uint32(file) + base_offset;
+    bool is_compressed = (flags & 1) != 0;
+
+    file.seekg(string_pointer_offset + (idx * 4), file.beg);  // idx # bytes
+    uint32_t file_name_length = read_uint32(file);
+    std::string file_name = read_null_terminated_string(
+        file,
+        string_table_offset + file_name_length);  // TODO: replace with file.get
+
+    if (is_compressed && compressed_length > 0) {
+      std::cout << set_color(Color::WHITE) << "[Extracting compressed file \""
+                << file_name << "\"..." << set_color() << std::endl;
+
+      file.seekg(compressed_offset, file.beg);
+      char buffer[compressed_length];
+      file.read(buffer, compressed_length);
+
+      // TODO: dump to file here
+    } else {
+      file.seekg(decompressed_offset, file.beg);
+
+      // TODO: SERI Reading stuff here
+    }
   }
 }
 
@@ -90,11 +159,11 @@ void unpack_image(const std::string& filename) {
     // I feel weird about doing side-effecting computations. Might alter
     // extract_package to be something that returns a true value, not just a
     // number. We could accumulate packages and then dump them all at once.
-    if (extract_package(file, "") > 0) {
-      index++;
-    } else {
-      // Delete the package_folder directory
-    }
+    // if (extract_package(file, "") > 0) {
+    //   index++;
+    // } else {
+    // Delete the package_folder directory
+    // }
 
     if ((file.tellg() & BlockAlignMask) != 0) {
       long position = (file.tellg() & ~BlockAlignMask) + BlockAlign;
