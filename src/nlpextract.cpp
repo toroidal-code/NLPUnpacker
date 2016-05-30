@@ -1,7 +1,14 @@
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <sys/stat.h>
+#endif
+
 #include <unistd.h>
+#include <bitset>
 #include <fstream>
 #include <functional>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -36,10 +43,18 @@ std::string set_color(Color foreground = Color::NONE,
 const uint BlockAlign = 0x800;
 const uint BlockAlignMask = BlockAlign - 1;
 
+#ifdef _WIN32
+inline bool file_exists(const std::string& name) {
+  DWORD dwAttrib = GetFileAttributes(name.c_str());
+  return (dwAttrib != INVALID_FILE_ATTRIBUTES &&
+          !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY));
+}
+#else
 inline bool file_exists(const std::string& name) {
   struct stat buffer;
   return (stat(name.c_str(), &buffer) == 0);
 }
+#endif
 
 /**
  * Simple function to read a string from some istream
@@ -51,13 +66,7 @@ inline bool file_exists(const std::string& name) {
  */
 inline std::string read_string(std::istream& istream, int length) {
   char buffer[length];
-
-  // original program used C# "read" which is
-  // read(byte[], num bytes, num chars) thus, I'm using "get" instead of the C++
-  // "read", which only handles bytes, not characters
-  // here
   istream.read(buffer, 4);
-
   return std::string(buffer);
 }
 
@@ -99,42 +108,86 @@ int extract_package(std::fstream& file, std::string output_folder) {
   uint32_t compressed_section_length = read_uint32(file);
   uint32_t padding = read_uint32(file);
 
-  for (int idx = 0; idx < file_count; idx++) {
-    // 32 was originally 0x20
-    file.seekg(base_offset + 32 + (idx * 32), file.beg);
+  std::cout << std::uppercase << "File count: " << file_count << std::endl
+            << "String pointer offset: "
+            << "0x" << std::hex << string_pointer_offset << std::dec << " ("
+            << string_pointer_offset << ")" << std::endl
+            << "String table offset: "
+            << "0x" << std::hex << string_table_offset << std::dec << " ("
+            << string_table_offset << ")" << std::endl
+            << "Data offset: "
+            << "0x" << std::hex << data_offset << std::dec << " ("
+            << data_offset << ")" << std::endl
+            << "Decompressed section length: " << decompressed_section_length
+            << std::endl
+            << "Compressed section length: " << compressed_section_length
+            << std::endl
+            << "Padding: " << padding << std::endl
+            << std::endl;
 
-    // TODO: Same for this
-    std::string file_signature = read_string(file, 4);
-    uint32_t unknown_0 = read_uint32(file);
-    uint32_t decompressed_length = read_uint32(file);
-    uint32_t decompressed_offset = read_uint32(file) + base_offset;
-    uint32_t unknown_1 = read_uint32(file);
-    uint32_t flags = read_uint32(file);
-    uint32_t compressed_length = read_uint32(file);
-    uint32_t compressed_offset = read_uint32(file) + base_offset;
-    bool is_compressed = (flags & 1) != 0;
+  // for (int idx = 0; idx < file_count; idx++) {
+  //   // 32 was originally 0x20
+  //   file.seekg(base_offset + 32 + (idx * 32), file.beg);
 
-    file.seekg(string_pointer_offset + (idx * 4), file.beg);  // idx # bytes
-    uint32_t file_name_length = read_uint32(file);
-    std::string file_name = read_null_terminated_string(
-        file,
-        string_table_offset + file_name_length);  // TODO: replace with file.get
+  //   // TODO: Same for this
+  //   std::string file_signature = read_string(file, 4);
+  //   uint32_t unknown_0 = read_uint32(file);
+  //   uint32_t decompressed_length = read_uint32(file);
+  //   uint32_t decompressed_offset = read_uint32(file) + base_offset;
+  //   uint32_t unknown_1 = read_uint32(file);
+  //   uint32_t flags = read_uint32(file);
+  //   uint32_t compressed_length = read_uint32(file);
+  //   uint32_t compressed_offset = read_uint32(file) + base_offset;
+  //   bool is_compressed = (flags & 1) != 0;
 
-    if (is_compressed && compressed_length > 0) {
-      std::cout << set_color(Color::WHITE) << "[Extracting compressed file \""
-                << file_name << "\"..." << set_color() << std::endl;
+  //   file.seekg(string_pointer_offset + (idx * 4), file.beg);  // idx # bytes
+  //   uint32_t file_name_length = read_uint32(file);
+  //   std::string file_name = read_null_terminated_string(
+  //       file,
+  //       string_table_offset + file_name_length);  // TODO: replace with
+  //                                                 // file.get
 
-      file.seekg(compressed_offset, file.beg);
-      char buffer[compressed_length];
-      file.read(buffer, compressed_length);
+  //   std::cout << std::hex << "  0x" << base_offset + 32 + (idx * 32) <<
+  //   std::dec
+  //             << std::endl
+  //             << "  File signature: " << file_signature << std::endl
+  //             << "  Unknown_0: " << unknown_0 << std::endl
+  //             << "  Decompressed Length: " << decompressed_length <<
+  //             std::endl
+  //             << "  Decompressed Offset: " << decompressed_offset <<
+  //             std::endl
+  //             << "  Unknown_1: " << unknown_1 << std::endl
+  //             << "  Flags: " << std::bitset<32>(flags) << std::endl
+  //             << "  Compressed Length: " << compressed_length << std::endl
+  //             << "  Compressed Offset: " << compressed_offset << std::endl
+  //             << "  Is Compressed: " << std::boolalpha << is_compressed
+  //             << std::endl
+  //             << std::hex << "  0x" << string_pointer_offset + (idx * 4)
+  //             << std::dec << std::endl
+  //             << "  Filename Length: " << file_name_length << std::endl
+  //             << "  Filename: " << file_name << std::endl
+  //             << std::endl;
 
-      // TODO: dump to file here
-    } else {
-      file.seekg(decompressed_offset, file.beg);
+  //   //   if (is_compressed && compressed_length > 0) {
+  //   //     std::cout << set_color(Color::WHITE) << "[Extracting compressed
+  //   file
+  //   //     \""
+  //   //               << file_name << "\"..." << set_color() << std::endl;
 
-      // TODO: SERI Reading stuff here
-    }
-  }
+  //   //     file.seekg(compressed_offset, file.beg);
+  //   //     char buffer[compressed_length];
+  //   //     file.read(buffer, compressed_length);
+
+  //   //     // TODO: dump to file here
+  //   //   } else {
+  //   //     file.seekg(decompressed_offset, file.beg);
+
+  //   //     // TODO: SERI Reading stuff here
+  //   //   }
+  // }
+
+  file.seekg(base_offset + compressed_section_length, file.beg);
+  return static_cast<int>(file_count);
 }
 
 void unpack_image(const std::string& filename) {
@@ -149,7 +202,8 @@ void unpack_image(const std::string& filename) {
 
   while (file.tellg() <= length) {
     std::cout << set_color(Color::YELLOW) << "[Package " << index
-              << " at offset 0x" << std::hex << file.tellg() << std::dec << "]"
+              << " at offset 0x" << std::setfill('0') << std::setw(8)
+              << std::uppercase << std::hex << file.tellg() << std::dec << "]"
               << set_color() << std::endl;
 
     // TODO: Figure out how to do filepath/directory manipulation here.
@@ -159,11 +213,11 @@ void unpack_image(const std::string& filename) {
     // I feel weird about doing side-effecting computations. Might alter
     // extract_package to be something that returns a true value, not just a
     // number. We could accumulate packages and then dump them all at once.
-    // if (extract_package(file, "") > 0) {
-    //   index++;
-    // } else {
-    // Delete the package_folder directory
-    // }
+    if (extract_package(file, "") > 0) {
+      index++;
+    } else {
+      // Delete the package_folder directory
+    }
 
     if ((file.tellg() & BlockAlignMask) != 0) {
       long position = (file.tellg() & ~BlockAlignMask) + BlockAlign;
@@ -184,9 +238,8 @@ int main(int argc, char** argv) {
             << "C++ port and further modifications by Katherine Whitlock aka "
                "toroidal-code"
             << std::endl
-            << "Version 0.1.0" << std::endl
-            << std::endl
-            << set_color();
+            << "Version 0.1.0" << set_color() << std::endl
+            << std::endl;
 
   if (argc > 1) {
     auto filename = std::string(argv[1]);
